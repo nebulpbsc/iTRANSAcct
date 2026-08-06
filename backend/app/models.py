@@ -59,7 +59,12 @@ class Company(Base):
     connect_code = Column(String, unique=True, index=True, default=gen_id)  # share this to let others find you
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    accounts = relationship("Account", back_populates="company", cascade="all, delete-orphan")
+    accounts = relationship(
+        "Account",
+        back_populates="company",
+        cascade="all, delete-orphan",
+        foreign_keys=lambda: [Account.company_id],
+    )
     sent_transactions = relationship(
         "Transaction", foreign_keys="Transaction.sender_company_id", back_populates="sender_company"
     )
@@ -116,6 +121,8 @@ class Account(Base):
     is_system = Column(Boolean, default=False)  # protects Sales/Purchase/Bank from deletion
 
     company = relationship("Company", back_populates="accounts", foreign_keys=[company_id])
+    # explicit relationship for the counterparty reference (disambiguates joins)
+    counterparty_company = relationship("Company", foreign_keys=[counterparty_company_id])
 
 
 # ---------------------------------------------------------------------------
