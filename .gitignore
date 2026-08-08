@@ -5,7 +5,6 @@ backend/app/__pycache__/
 backend/app/routers/__pycache__/
 **/__pycache__/
 *.pyc
-backend/itransacct.db
 
 # Frontend
 frontend/node_modules/

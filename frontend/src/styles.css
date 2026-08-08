@@ -16,14 +16,16 @@
   --text: #1b2430;
   --text-muted: #6b7280;
   --text-on-ink: #e9e7e0;
-  --brand: #2f6f62;
-  --brand-dark: #234f45;
-  --brand-tint: #e4efec;
+  /* brand colors changed from green -> light blue */
+  --brand: #3aa8ff;
+  --brand-dark: #1683d6;
+  --brand-tint: #e6f7ff;
 
   --state-draft: #c2547a;
   --state-draft-tint: #f8e2ea;
-  --state-sent: #2f8b57;
-  --state-sent-tint: #dff3e6;
+  /* sent state (previously green) - align with light blue theme */
+  --state-sent: #2b82e6;
+  --state-sent-tint: #e6f1ff;
   --state-taken: #2f5fc6;
   --state-taken-tint: #e3eafc;
   --state-rejected: #8a8a8a;
@@ -258,7 +260,7 @@ tbody td {
 }
 
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: rgba(47, 111, 98, 0.03); }
+tbody tr:hover { background: rgba(58, 168, 255, 0.03); }
 
 .num { font-family: var(--font-mono); text-align: right; white-space: nowrap; }
 .right { text-align: right; }
