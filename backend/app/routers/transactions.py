@@ -65,10 +65,13 @@ def create_transaction(
         db.flush()
         for line in payload.lines:
             amount = round(line.quantity * line.rate, 2)
-            total += amount
+            gst_percent = getattr(line, "gst_percent", 0.0) or 0.0
+            gst_amount = round(amount * (gst_percent / 100.0), 2)
+            total += amount + gst_amount
             db.add(models.TransactionLine(
                 transaction_id=txn.id, item_name=line.item_name,
                 quantity=line.quantity, rate=line.rate, amount=amount,
+                gst_percent=gst_percent, gst_amount=gst_amount,
             ))
         txn.total_amount = round(total, 2)
     else:
@@ -87,7 +90,10 @@ def create_transaction(
 # ---------------------------------------------------------------------------
 @router.post("/{txn_id}/send", response_model=schemas.TransactionOut)
 def send_transaction(
-    txn_id: str, db: Session = Depends(get_db), current: models.Company = Depends(security.get_current_company)
+    txn_id: str,
+    payload: Optional[schemas.SendTransactionIn] = None,
+    db: Session = Depends(get_db),
+    current: models.Company = Depends(security.get_current_company),
 ):
     txn = db.query(models.Transaction).filter(models.Transaction.id == txn_id).first()
     if not txn:
@@ -96,8 +102,16 @@ def send_transaction(
         raise HTTPException(status_code=403, detail="Only the initiator can send this transaction")
     if txn.state != models.TransactionState.DRAFT:
         raise HTTPException(status_code=400, detail=f"Transaction is already {txn.state.value}")
+    # allow updating which sender cash or sales account to use at send-time
+    sender_cash = None
+    sender_sales = None
+    if payload:
+        sender_cash = getattr(payload, "sender_cash_account_id", None)
+        sender_sales = getattr(payload, "sender_sales_account_id", None)
+    if sender_cash:
+        txn.sender_cash_account_id = sender_cash
 
-    entry = posting.post_on_send(db, txn)
+    entry = posting.post_on_send(db, txn, sender_sales_account_id=sender_sales)
     txn.sender_journal_entry_id = entry.id
     txn.state = models.TransactionState.SENT
     txn.sent_at = datetime.utcnow()
@@ -124,7 +138,7 @@ def take_transaction(
     if txn.state != models.TransactionState.SENT:
         raise HTTPException(status_code=400, detail=f"Transaction must be SENT before it can be taken (currently {txn.state.value})")
 
-    entry = posting.post_on_take(db, txn, recipient_cash_account_id=payload.recipient_cash_account_id)
+    entry = posting.post_on_take(db, txn, recipient_cash_account_id=payload.recipient_cash_account_id, recipient_purchase_account_id=payload.recipient_purchase_account_id)
     txn.recipient_journal_entry_id = entry.id
     txn.state = models.TransactionState.TAKEN
     txn.taken_at = datetime.utcnow()

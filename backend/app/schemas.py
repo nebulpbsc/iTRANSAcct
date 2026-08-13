@@ -45,6 +45,26 @@ class AccountOut(BaseModel):
     counterparty_company_id: Optional[str] = None
 
 
+class AccountHeadOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str
+    description: Optional[str] = None
+
+
+class AccountHeadMappingIn(BaseModel):
+    head_id: str
+    account_id: str
+
+
+class AccountHeadMappingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    company_id: str
+    head_id: str
+    account_id: str
+
+
 class AccountCreate(BaseModel):
     name: str
     group: str  # ASSET / LIABILITY / INCOME / EXPENSE / EQUITY
@@ -55,6 +75,8 @@ class TransactionLineIn(BaseModel):
     item_name: str
     quantity: float = 1.0
     rate: float = 0.0
+    gst_percent: float = 0.0
+    gst_amount: float = 0.0
 
     @property
     def amount(self) -> float:
@@ -68,6 +90,8 @@ class TransactionLineOut(BaseModel):
     quantity: float
     rate: float
     amount: float
+    gst_percent: float = 0.0
+    gst_amount: float = 0.0
 
 
 class TransactionCreate(BaseModel):
@@ -87,6 +111,12 @@ class TakeTransactionIn(BaseModel):
     # cash/bank account received the funds. Sale/Purchase needs nothing —
     # true zero-data-entry acknowledgment.
     recipient_cash_account_id: Optional[str] = None
+    recipient_purchase_account_id: Optional[str] = None
+
+
+class SendTransactionIn(BaseModel):
+    sender_cash_account_id: Optional[str] = None
+    sender_sales_account_id: Optional[str] = None
 
 
 class RejectTransactionIn(BaseModel):

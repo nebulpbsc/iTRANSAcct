@@ -3,8 +3,47 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 
 function emptyLine() {
-  return { item_name: "", quantity: 1, rate: 0 };
+  return { item_name: "", quantity: 1, rate: 0, gst_percent: 0, gst_amount: 0 };
 }
+
+function InlineCreateAccount({ defaultGroup = "ASSET", onCreated }) {
+  const [name, setName] = useState("");
+  const [group, setGroup] = useState(defaultGroup);
+  const [saving, setSaving] = useState(false);
+
+  async function create() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const acct = await api.createAccount({ name: name.trim(), group });
+      onCreated && onCreated(acct);
+      setName("");
+      setGroup(defaultGroup);
+    } catch (e) {
+      // silent per small inline ux; could surface via parent
+      alert(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <input placeholder="New account name" value={name} onChange={(e) => setName(e.target.value)} />
+      <select value={group} onChange={(e) => setGroup(e.target.value)}>
+        <option value="ASSET">ASSET</option>
+        <option value="LIABILITY">LIABILITY</option>
+        <option value="INCOME">INCOME</option>
+        <option value="EXPENSE">EXPENSE</option>
+        <option value="EQUITY">EQUITY</option>
+      </select>
+      <button className="btn btn-ghost btn-sm" onClick={create} disabled={saving || !name.trim()}>
+        {saving ? "Creating…" : "Create"}
+      </button>
+    </div>
+  );
+}
+// Created view unchanged; sendNow will be updated in a separate patch.
 
 export default function NewTransaction() {
   const [type, setType] = useState("SALE_PURCHASE");
@@ -16,6 +55,7 @@ export default function NewTransaction() {
   const [lines, setLines] = useState([emptyLine()]);
   const [amount, setAmount] = useState("");
   const [cashAccountId, setCashAccountId] = useState("");
+  const [salesAccountId, setSalesAccountId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
@@ -26,8 +66,13 @@ export default function NewTransaction() {
     api.accounts().then(setAccounts).catch(() => {});
   }, []);
 
-  const total = lines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.rate) || 0), 0);
+  const total = lines.reduce((sum, l) => {
+    const amount = (Number(l.quantity) || 0) * (Number(l.rate) || 0);
+    const gst = amount * ((Number(l.gst_percent) || 0) / 100);
+    return sum + amount + gst;
+  }, 0);
   const cashAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "ASSET");
+  const salesAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "INCOME");
 
   function updateLine(idx, field, value) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
@@ -59,7 +104,14 @@ export default function NewTransaction() {
       if (type === "SALE_PURCHASE") {
         payload.lines = lines
           .filter((l) => l.item_name.trim())
-          .map((l) => ({ item_name: l.item_name, quantity: Number(l.quantity), rate: Number(l.rate) }));
+          .map((l) => {
+            const quantity = Number(l.quantity);
+            const rate = Number(l.rate);
+            const amount = Math.round(quantity * rate * 100) / 100;
+            const gst_percent = Number(l.gst_percent) || 0;
+            const gst_amount = Math.round(amount * (gst_percent / 100) * 100) / 100;
+            return { item_name: l.item_name, quantity, rate, gst_percent, gst_amount };
+          });
         if (payload.lines.length === 0) {
           setError("Add at least one item line.");
           setBusy(false);
@@ -75,6 +127,8 @@ export default function NewTransaction() {
         payload.sender_cash_account_id = cashAccountId || undefined;
       }
 
+      // keep selected sales account in the frontend state; sending can include it
+
       const txn = await api.createTransaction(payload);
       setCreated(txn);
     } catch (err) {
@@ -88,7 +142,10 @@ export default function NewTransaction() {
     setBusy(true);
     setError("");
     try {
-      await api.sendTransaction(created.id);
+      const payload = {};
+      if (cashAccountId) payload.sender_cash_account_id = cashAccountId;
+      if (salesAccountId) payload.sender_sales_account_id = salesAccountId;
+      await api.sendTransaction(created.id, Object.keys(payload).length ? payload : undefined);
       navigate("/outbox");
     } catch (err) {
       setError(err.message);
@@ -185,6 +242,20 @@ export default function NewTransaction() {
           </div>
 
           {type === "SALE_PURCHASE" ? (
+            <>
+            <div className="field">
+              <label>Sales account (optional)</label>
+              <select className="input" value={salesAccountId} onChange={(e) => setSalesAccountId(e.target.value)}>
+                <option value="">Sales Account (default)</option>
+                {salesAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 12 }} className="text-muted">Choose which income account to post the sale to (optional).</div>
+              <div style={{ marginTop: 8 }}>
+                <InlineCreateAccount defaultGroup="INCOME" onCreated={(acct) => { setAccounts((prev) => [acct, ...prev]); setSalesAccountId(acct.id); }} />
+              </div>
+            </div>
             <div className="field">
               <label>Items</label>
               <table className="line-items-table">
@@ -193,6 +264,8 @@ export default function NewTransaction() {
                     <th style={{ width: "50%" }}>Item</th>
                     <th className="right">Qty</th>
                     <th className="right">Rate</th>
+                    <th className="right">GST%</th>
+                    <th className="right">Tax</th>
                     <th className="right">Amount</th>
                     <th></th>
                   </tr>
@@ -228,6 +301,22 @@ export default function NewTransaction() {
                           onChange={(e) => updateLine(idx, "rate", e.target.value)}
                         />
                       </td>
+                      <td>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={l.gst_percent}
+                          onChange={(e) => updateLine(idx, "gst_percent", e.target.value)}
+                        />
+                      </td>
+                      <td className="num">
+                        {(
+                          ((Number(l.quantity) || 0) * (Number(l.rate) || 0)) *
+                          ((Number(l.gst_percent) || 0) / 100)
+                        ).toFixed(2)}
+                      </td>
                       <td className="num">{((Number(l.quantity) || 0) * (Number(l.rate) || 0)).toFixed(2)}</td>
                       <td>
                         {lines.length > 1 && (
@@ -243,6 +332,7 @@ export default function NewTransaction() {
                 Total: {total.toFixed(2)}
               </div>
             </div>
+            </>
           ) : (
             <div className="form-row">
               <div className="field">
@@ -265,6 +355,9 @@ export default function NewTransaction() {
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>
+                <div style={{ marginTop: 8 }}>
+                  <InlineCreateAccount defaultGroup="ASSET" onCreated={(acct) => { setAccounts((prev) => [acct, ...prev]); setCashAccountId(acct.id); }} />
+                </div>
               </div>
             </div>
           )}

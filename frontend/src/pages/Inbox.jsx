@@ -16,6 +16,8 @@ export default function Inbox() {
   const [busyId, setBusyId] = useState(null);
   const [pickingCashFor, setPickingCashFor] = useState(null);
   const [chosenCash, setChosenCash] = useState("");
+  const [pickingPurchaseFor, setPickingPurchaseFor] = useState(null);
+  const [chosenPurchaseAccount, setChosenPurchaseAccount] = useState("");
 
   function load() {
     api.inbox(filter === "ALL" ? undefined : filter).then(setTxns).catch((e) => setError(e.message));
@@ -25,6 +27,7 @@ export default function Inbox() {
   useEffect(() => { api.accounts().then(setAccounts).catch(() => {}); }, []);
 
   const cashAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "ASSET");
+  const purchaseAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "EXPENSE");
 
   async function take(t) {
     // For payments, offer a chance to pick which of our accounts received the funds.
@@ -33,11 +36,23 @@ export default function Inbox() {
       setChosenCash("");
       return;
     }
+    // For sale/purchase, allow choosing which Purchase account to post to.
+    if (t.type === "SALE_PURCHASE" && pickingPurchaseFor !== t.id) {
+      setPickingPurchaseFor(t.id);
+      setChosenPurchaseAccount("");
+      return;
+    }
     setBusyId(t.id);
     setError("");
     try {
-      await api.takeTransaction(t.id, t.type === "PAYMENT_RECEIPT" ? { recipient_cash_account_id: chosenCash || undefined } : {});
+      const payload = t.type === "PAYMENT_RECEIPT"
+        ? { recipient_cash_account_id: chosenCash || undefined }
+        : t.type === "SALE_PURCHASE"
+          ? { recipient_purchase_account_id: chosenPurchaseAccount || undefined }
+          : {};
+      await api.takeTransaction(t.id, payload);
       setPickingCashFor(null);
+      setPickingPurchaseFor(null);
       load();
     } catch (err) {
       setError(err.message);
@@ -123,6 +138,22 @@ export default function Inbox() {
                           <select className="input" style={{ maxWidth: 260 }} value={chosenCash} onChange={(e) => setChosenCash(e.target.value)}>
                             <option value="">Cash Account (default)</option>
                             {cashAccounts.map((a) => (
+                              <option key={a.id} value={a.id}>{a.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+
+                  {pickingPurchaseFor === t.id && (
+                    <tr>
+                      <td colSpan={7} style={{ background: "var(--brand-tint)" }}>
+                        <div className="flex-gap">
+                          <span className="text-muted" style={{ fontSize: 12.5 }}>Post to Purchase account:</span>
+                          <select className="input" style={{ maxWidth: 260 }} value={chosenPurchaseAccount} onChange={(e) => setChosenPurchaseAccount(e.target.value)}>
+                            <option value="">Purchase Account (default)</option>
+                            {purchaseAccounts.map((a) => (
                               <option key={a.id} value={a.id}>{a.name}</option>
                             ))}
                           </select>

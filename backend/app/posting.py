@@ -135,14 +135,28 @@ def _make_entry(db: Session, company_id, transaction_id, voucher_type, voucher_n
     return entry
 
 
-def post_on_send(db: Session, txn: models.Transaction) -> models.JournalEntry:
+def post_on_send(db: Session, txn: models.Transaction, sender_sales_account_id: str = None) -> models.JournalEntry:
     """Auto-post to the SENDER's books the moment they hit 'Send'."""
     sender = txn.sender_company
     recipient = txn.recipient_company
     ensure_system_accounts(db, sender)
 
+    def resolve_account_for_head(company_id: str, head_name: str, fallback_name: str):
+        # Try to resolve via AccountHead mapping; fallback to system account by name
+        head = db.query(models.AccountHead).filter_by(name=head_name).first()
+        if head:
+            mapping = db.query(models.AccountHeadMapping).filter_by(company_id=company_id, head_id=head.id).first()
+            if mapping:
+                acct = db.query(models.Account).filter_by(id=mapping.account_id).first()
+                if acct:
+                    return acct
+        return db.query(models.Account).filter_by(company_id=company_id, name=fallback_name).first()
+
     if txn.type == models.TransactionType.SALE_PURCHASE:
-        sales_acct = db.query(models.Account).filter_by(company_id=sender.id, name=SALES_ACCOUNT).first()
+        if sender_sales_account_id:
+            sales_acct = db.query(models.Account).filter_by(id=sender_sales_account_id, company_id=sender.id).first()
+        else:
+            sales_acct = resolve_account_for_head(sender.id, "Sales", SALES_ACCOUNT)
         party_recv = get_or_create_party_account(
             db, sender.id, recipient.id, recipient.name, models.AccountType.PARTY_RECEIVABLE
         )
@@ -156,7 +170,8 @@ def post_on_send(db: Session, txn: models.Transaction) -> models.JournalEntry:
     else:  # PAYMENT_RECEIPT
         cash_acct_id = txn.sender_cash_account_id
         if not cash_acct_id:
-            cash_acct_id = db.query(models.Account).filter_by(company_id=sender.id, name=CASH_ACCOUNT).first().id
+            cash_acct = resolve_account_for_head(sender.id, "Cash", CASH_ACCOUNT)
+            cash_acct_id = cash_acct.id
         party_pay = get_or_create_party_account(
             db, sender.id, recipient.id, recipient.name, models.AccountType.PARTY_PAYABLE
         )
@@ -171,7 +186,7 @@ def post_on_send(db: Session, txn: models.Transaction) -> models.JournalEntry:
     return entry
 
 
-def post_on_take(db: Session, txn: models.Transaction, recipient_cash_account_id: str = None) -> models.JournalEntry:
+def post_on_take(db: Session, txn: models.Transaction, recipient_cash_account_id: str = None, recipient_purchase_account_id: str = None) -> models.JournalEntry:
     """Auto-post the MIRRORED entry to the RECIPIENT's books on acknowledgment.
     This is the zero-data-entry step: the recipient supplies no new facts
     (except, for payments, which of their own bank accounts received it)."""
@@ -180,7 +195,12 @@ def post_on_take(db: Session, txn: models.Transaction, recipient_cash_account_id
     ensure_system_accounts(db, recipient)
 
     if txn.type == models.TransactionType.SALE_PURCHASE:
-        purchase_acct = db.query(models.Account).filter_by(company_id=recipient.id, name=PURCHASE_ACCOUNT).first()
+        # Prefer an explicit purchase account supplied by the taker; otherwise fall back to system Purchase account
+        purchase_acct = None
+        if recipient_purchase_account_id:
+            purchase_acct = db.query(models.Account).filter_by(id=recipient_purchase_account_id, company_id=recipient.id).first()
+        if not purchase_acct:
+            purchase_acct = db.query(models.Account).filter_by(company_id=recipient.id, name=PURCHASE_ACCOUNT).first()
         party_pay = get_or_create_party_account(
             db, recipient.id, sender.id, sender.name, models.AccountType.PARTY_PAYABLE
         )
@@ -194,7 +214,8 @@ def post_on_take(db: Session, txn: models.Transaction, recipient_cash_account_id
     else:  # PAYMENT_RECEIPT -> recorded as Receipt
         cash_acct_id = recipient_cash_account_id
         if not cash_acct_id:
-            cash_acct_id = db.query(models.Account).filter_by(company_id=recipient.id, name=CASH_ACCOUNT).first().id
+            cash_acct = resolve_account_for_head(recipient.id, "Cash", CASH_ACCOUNT)
+            cash_acct_id = cash_acct.id
         party_recv = get_or_create_party_account(
             db, recipient.id, sender.id, sender.name, models.AccountType.PARTY_RECEIVABLE
         )

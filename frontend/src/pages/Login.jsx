@@ -38,7 +38,7 @@ export default function Login() {
           <div className="brand-mark">iT</div>
           <div>
             <div className="brand-name" style={{ color: "var(--text)" }}>
-              iTransAcct
+              iTRANSAcct
             </div>
             <div className="text-muted" style={{ fontSize: 12 }}>
               Single data entry. Dual bookkeeping.

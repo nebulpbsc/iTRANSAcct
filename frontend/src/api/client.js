@@ -48,9 +48,13 @@ export const api = {
 
   accounts: () => request("/accounts"),
   createAccount: (payload) => request("/accounts", { method: "POST", body: payload }),
+  accountHeads: () => request("/accounts/heads"),
+  accountMappings: () => request("/accounts/mapping"),
+  setAccountMapping: (payload) => request("/accounts/mapping", { method: "POST", body: payload }),
+  deleteAccountMapping: (mappingId) => request(`/accounts/mapping/${mappingId}`, { method: "DELETE" }),
 
   createTransaction: (payload) => request("/transactions", { method: "POST", body: payload }),
-  sendTransaction: (id) => request(`/transactions/${id}/send`, { method: "POST" }),
+  sendTransaction: (id, payload) => request(`/transactions/${id}/send`, { method: "POST", body: payload }),
   takeTransaction: (id, payload = {}) => request(`/transactions/${id}/take`, { method: "POST", body: payload }),
   rejectTransaction: (id, payload = {}) => request(`/transactions/${id}/reject`, { method: "POST", body: payload }),
   outbox: (state) => request(`/transactions/outbox${state ? `?state=${state}` : ""}`),

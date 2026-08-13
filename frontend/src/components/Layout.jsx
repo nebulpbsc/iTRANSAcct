@@ -21,6 +21,12 @@ const nav = [
       { to: "/reports/receivables-payables", label: "Receivables / Payables" },
     ],
   },
+  {
+    group: "Settings",
+    items: [
+      { to: "/settings/account-heads", label: "Account Heads" },
+    ],
+  },
 ];
 
 export default function Layout() {
@@ -32,7 +38,7 @@ export default function Layout() {
         <div className="brand">
           <div className="brand-mark">iT</div>
           <div>
-            <div className="brand-name">iTransAcct</div>
+            <div className="brand-name">iTRANSAcct</div>
             <div className="brand-tagline">single entry · dual books</div>
           </div>
         </div>

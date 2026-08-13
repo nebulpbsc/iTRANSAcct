@@ -125,6 +125,30 @@ class Account(Base):
     counterparty_company = relationship("Company", foreign_keys=[counterparty_company_id])
 
 
+# Master table for account heads (Sales, Purchase, Cash, etc.)
+class AccountHead(Base):
+    __tablename__ = "account_heads"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+
+
+# Per-company mapping of account head -> actual Account
+class AccountHeadMapping(Base):
+    __tablename__ = "account_head_mappings"
+    __table_args__ = (UniqueConstraint("company_id", "head_id", name="uq_company_head"),)
+
+    id = Column(String, primary_key=True, default=gen_id)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False)
+    head_id = Column(String, ForeignKey("account_heads.id"), nullable=False)
+    account_id = Column(String, ForeignKey("accounts.id"), nullable=False)
+
+    company = relationship("Company")
+    head = relationship("AccountHead")
+    account = relationship("Account")
+
+
 # ---------------------------------------------------------------------------
 # Transactions (the single point of data entry)
 # ---------------------------------------------------------------------------
@@ -182,6 +206,8 @@ class TransactionLine(Base):
     quantity = Column(Float, default=1.0)
     rate = Column(Float, default=0.0)
     amount = Column(Float, default=0.0)
+    gst_percent = Column(Float, default=0.0)
+    gst_amount = Column(Float, default=0.0)
 
     transaction = relationship("Transaction", back_populates="lines")
 
