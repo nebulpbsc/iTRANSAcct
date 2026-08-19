@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simple helper script to add gst_percent and gst_amount columns to
+"""Helper script to add SGST/CGST percent and amount columns to
 the transaction_lines table. Uses DATABASE_URL if set, otherwise defaults
 to a local SQLite file under backend/itransacct.db.
 
@@ -9,13 +9,18 @@ Run:
 Or set DATABASE_URL to your DB and run the script.
 """
 from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 import os
 import sys
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./backend/itransacct.db")
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+if DATABASE_URL.startswith("sqlite"):
+    # use NullPool for short-lived scripts to avoid connection pool / threading issues
+    engine = create_engine(DATABASE_URL, connect_args=connect_args, poolclass=NullPool)
+else:
+    engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 
 def sqlite_has_column(conn, table, column):
@@ -28,29 +33,31 @@ def main():
     if DATABASE_URL.startswith("sqlite"):
         # For SQLite we still can use simple ALTER TABLE ADD COLUMN
         alter_stmts = [
-            "ALTER TABLE transaction_lines ADD COLUMN gst_percent REAL DEFAULT 0.0;",
-            "ALTER TABLE transaction_lines ADD COLUMN gst_amount REAL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN sgst_percent REAL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN cgst_percent REAL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN sgst_amount REAL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN cgst_amount REAL DEFAULT 0.0;",
         ]
     else:
         alter_stmts = [
-            "ALTER TABLE transaction_lines ADD COLUMN gst_percent double precision NOT NULL DEFAULT 0.0;",
-            "ALTER TABLE transaction_lines ADD COLUMN gst_amount double precision NOT NULL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN sgst_percent double precision NOT NULL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN cgst_percent double precision NOT NULL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN sgst_amount double precision NOT NULL DEFAULT 0.0;",
+            "ALTER TABLE transaction_lines ADD COLUMN cgst_amount double precision NOT NULL DEFAULT 0.0;",
         ]
 
     with engine.begin() as conn:
         try:
             if DATABASE_URL.startswith("sqlite"):
                 # guard: add only if columns don't already exist
-                if not sqlite_has_column(conn, "transaction_lines", "gst_percent"):
-                    conn.execute(text(alter_stmts[0]))
-                    print("Added gst_percent column")
-                else:
-                    print("gst_percent already exists, skipping")
-                if not sqlite_has_column(conn, "transaction_lines", "gst_amount"):
-                    conn.execute(text(alter_stmts[1]))
-                    print("Added gst_amount column")
-                else:
-                    print("gst_amount already exists, skipping")
+                # guard: add only if columns don't already exist
+                names = ["sgst_percent", "cgst_percent", "sgst_amount", "cgst_amount"]
+                for i, name in enumerate(names):
+                    if not sqlite_has_column(conn, "transaction_lines", name):
+                        conn.execute(text(alter_stmts[i]))
+                        print(f"Added {name} column")
+                    else:
+                        print(f"{name} already exists, skipping")
             else:
                 for s in alter_stmts:
                     try:

@@ -206,8 +206,12 @@ class TransactionLine(Base):
     quantity = Column(Float, default=1.0)
     rate = Column(Float, default=0.0)
     amount = Column(Float, default=0.0)
-    gst_percent = Column(Float, default=0.0)
-    gst_amount = Column(Float, default=0.0)
+    sgst_percent = Column(Float, default=0.0)
+    cgst_percent = Column(Float, default=0.0)
+    sgst_amount = Column(Float, default=0.0)
+    cgst_amount = Column(Float, default=0.0)
+    account_id = Column(String, ForeignKey("accounts.id"), nullable=True)
+
 
     transaction = relationship("Transaction", back_populates="lines")
 

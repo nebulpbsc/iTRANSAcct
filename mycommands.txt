@@ -1,3 +1,7 @@
- . .\.venv\Scripts\Activate.ps1
- python -m uvicorn app.main:app --reload
- npm run dev
+. .\.venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload
+npm run dev
+
+run migrate_gst_to_sgst_cgst.py from repo root
+(.venv) PS D:\Nebula\iTransAcct> python .\backend\scripts\migrate_gst_to_sgst_cgst.py
+Migration complete. Rows updated: 3

@@ -4,13 +4,93 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas, security, posting
+from sqlalchemy import text
 from ..database import get_db
+from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 def _to_out(txn: models.Transaction) -> schemas.TransactionOut:
-    out = schemas.TransactionOut.model_validate(txn)
+    # Build a plain dict and load lines via an explicit safe query so we only
+    # select columns that actually exist in the DB (avoids OperationalError
+    # when older schemas lack account_id)
+    from sqlalchemy import select
+    from sqlalchemy import inspect
+    from sqlalchemy.orm import object_session
+
+    txnd = {
+        "id": txn.id,
+        "type": txn.type.value if txn.type is not None else None,
+        "state": txn.state.value if txn.state is not None else None,
+        "sender_company_id": txn.sender_company_id,
+        "recipient_company_id": txn.recipient_company_id,
+        "voucher_no": txn.voucher_no,
+        "txn_date": txn.txn_date,
+        "narration": txn.narration,
+        "total_amount": txn.total_amount,
+        "created_at": txn.created_at,
+        "sent_at": txn.sent_at,
+        "taken_at": txn.taken_at,
+        "lines": [],
+    }
+
+    session = object_session(txn)
+    if session is not None:
+        try:
+            cols = {c['name'] for c in inspect(session.bind).get_columns('transaction_lines')}
+        except Exception:
+            cols = set()
+
+        # build selected columns list based on availability
+        sel_cols = [models.TransactionLine.id, models.TransactionLine.item_name, models.TransactionLine.quantity,
+                    models.TransactionLine.rate, models.TransactionLine.amount,
+                    models.TransactionLine.sgst_percent, models.TransactionLine.cgst_percent,
+                    models.TransactionLine.sgst_amount, models.TransactionLine.cgst_amount]
+        if 'account_id' in cols:
+            sel_cols.append(models.TransactionLine.account_id)
+
+        stmt = select(*sel_cols).where(models.TransactionLine.transaction_id == txn.id)
+        res = session.execute(stmt).all()
+        for row in res:
+            # row is a Row; map by positional order
+            l = {
+                "id": row[0],
+                "item_name": row[1],
+                "quantity": row[2],
+                "rate": row[3],
+                "amount": row[4],
+                "sgst_percent": row[5] if len(row) > 5 else 0.0,
+                "cgst_percent": row[6] if len(row) > 6 else 0.0,
+                "sgst_amount": row[7] if len(row) > 7 else 0.0,
+                "cgst_amount": row[8] if len(row) > 8 else 0.0,
+            }
+            if 'account_id' in cols:
+                # account_id will be the last appended
+                l['account_id'] = row[9] if len(row) > 9 else None
+            txnd['lines'].append(l)
+    else:
+        # fallback: attempt to read from ORM object but guard access
+        for ln in getattr(txn, 'lines', []) or []:
+            try:
+                l = {
+                    'id': ln.id,
+                    'item_name': ln.item_name,
+                    'quantity': getattr(ln, 'quantity', None),
+                    'rate': getattr(ln, 'rate', None),
+                    'amount': getattr(ln, 'amount', None),
+                    'sgst_percent': getattr(ln, 'sgst_percent', 0.0),
+                    'cgst_percent': getattr(ln, 'cgst_percent', 0.0),
+                    'sgst_amount': getattr(ln, 'sgst_amount', 0.0),
+                    'cgst_amount': getattr(ln, 'cgst_amount', 0.0),
+                    'account_id': getattr(ln, 'account_id', None),
+                }
+            except Exception:
+                l = {'id': getattr(ln, 'id', None), 'item_name': getattr(ln, 'item_name', None)}
+            txnd['lines'].append(l)
+
+    out = schemas.TransactionOut.model_validate(txnd)
     out.sender_company_name = txn.sender_company.name if txn.sender_company else None
     out.recipient_company_name = txn.recipient_company.name if txn.recipient_company else None
     return out
@@ -63,16 +143,50 @@ def create_transaction(
         total = 0.0
         db.add(txn)
         db.flush()
+        # detect whether the DB table has the optional account_id column
+        try:
+            inspector = inspect(db.bind)
+            txn_line_columns = {c['name'] for c in inspector.get_columns('transaction_lines')}
+        except Exception:
+            txn_line_columns = set()
+        has_account_col = 'account_id' in txn_line_columns
         for line in payload.lines:
             amount = round(line.quantity * line.rate, 2)
-            gst_percent = getattr(line, "gst_percent", 0.0) or 0.0
-            gst_amount = round(amount * (gst_percent / 100.0), 2)
-            total += amount + gst_amount
-            db.add(models.TransactionLine(
-                transaction_id=txn.id, item_name=line.item_name,
-                quantity=line.quantity, rate=line.rate, amount=amount,
-                gst_percent=gst_percent, gst_amount=gst_amount,
-            ))
+            sgst_percent = getattr(line, "sgst_percent", 0.0) or 0.0
+            cgst_percent = getattr(line, "cgst_percent", 0.0) or 0.0
+            sgst_amount = round(amount * (sgst_percent / 100.0), 2)
+            cgst_amount = round(amount * (cgst_percent / 100.0), 2)
+            total += amount + sgst_amount + cgst_amount
+            if has_account_col:
+                tl = models.TransactionLine(
+                    transaction_id=txn.id, item_name=line.item_name,
+                    quantity=line.quantity, rate=line.rate, amount=amount,
+                    sgst_percent=sgst_percent, cgst_percent=cgst_percent,
+                    sgst_amount=sgst_amount, cgst_amount=cgst_amount,
+                )
+                try:
+                    tl.account_id = getattr(line, "account_id", None)
+                except OperationalError:
+                    pass
+                db.add(tl)
+            else:
+                # Raw insert into transaction_lines avoiding account_id column (older DBs)
+                stmt = text(
+                    "INSERT INTO transaction_lines (id, transaction_id, item_name, quantity, rate, amount, sgst_percent, cgst_percent, sgst_amount, cgst_amount) VALUES (:id, :transaction_id, :item_name, :quantity, :rate, :amount, :sgst_percent, :cgst_percent, :sgst_amount, :cgst_amount)"
+                )
+                params = {
+                    "id": models.gen_id(),
+                    "transaction_id": txn.id,
+                    "item_name": line.item_name,
+                    "quantity": line.quantity,
+                    "rate": line.rate,
+                    "amount": amount,
+                    "sgst_percent": sgst_percent,
+                    "cgst_percent": cgst_percent,
+                    "sgst_amount": sgst_amount,
+                    "cgst_amount": cgst_amount,
+                }
+                db.execute(stmt, params)
         txn.total_amount = round(total, 2)
     else:
         if not payload.amount or payload.amount <= 0:

@@ -3,52 +3,27 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 
 function emptyLine() {
-  return { item_name: "", quantity: 1, rate: 0, gst_percent: 0, gst_amount: 0 };
+  return {
+    item_name: "",
+    quantity: 1,
+    rate: 0,
+    sgst_percent: 0,
+    cgst_percent: 0,
+    sgst_amount: 0,
+    cgst_amount: 0,
+    account_id: "",
+  };
 }
 
-function InlineCreateAccount({ defaultGroup = "ASSET", onCreated }) {
-  const [name, setName] = useState("");
-  const [group, setGroup] = useState(defaultGroup);
-  const [saving, setSaving] = useState(false);
-
-  async function create() {
-    if (!name.trim()) return;
-    setSaving(true);
-    try {
-      const acct = await api.createAccount({ name: name.trim(), group });
-      onCreated && onCreated(acct);
-      setName("");
-      setGroup(defaultGroup);
-    } catch (e) {
-      // silent per small inline ux; could surface via parent
-      alert(e.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-      <input placeholder="New account name" value={name} onChange={(e) => setName(e.target.value)} />
-      <select value={group} onChange={(e) => setGroup(e.target.value)}>
-        <option value="ASSET">ASSET</option>
-        <option value="LIABILITY">LIABILITY</option>
-        <option value="INCOME">INCOME</option>
-        <option value="EXPENSE">EXPENSE</option>
-        <option value="EQUITY">EQUITY</option>
-      </select>
-      <button className="btn btn-ghost btn-sm" onClick={create} disabled={saving || !name.trim()}>
-        {saving ? "Creating…" : "Create"}
-      </button>
-    </div>
-  );
-}
+// Inline account creation removed from New Transaction UI per request.
 // Created view unchanged; sendNow will be updated in a separate patch.
 
 export default function NewTransaction() {
   const [type, setType] = useState("SALE_PURCHASE");
   const [connections, setConnections] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [heads, setHeads] = useState([]);
+  const [mappings, setMappings] = useState([]);
   const [recipientId, setRecipientId] = useState("");
   const [narration, setNarration] = useState("");
   const [txnDate, setTxnDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -64,15 +39,25 @@ export default function NewTransaction() {
   useEffect(() => {
     api.connections().then(setConnections).catch(() => {});
     api.accounts().then(setAccounts).catch(() => {});
+    api.accountHeads().then(setHeads).catch(() => {});
+    api.accountMappings().then(setMappings).catch(() => {});
   }, []);
 
   const total = lines.reduce((sum, l) => {
     const amount = (Number(l.quantity) || 0) * (Number(l.rate) || 0);
-    const gst = amount * ((Number(l.gst_percent) || 0) / 100);
-    return sum + amount + gst;
+    const sgst = amount * ((Number(l.sgst_percent) || 0) / 100);
+    const cgst = amount * ((Number(l.cgst_percent) || 0) / 100);
+    return sum + amount + sgst + cgst;
   }, 0);
   const cashAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "ASSET");
   const salesAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "INCOME");
+
+  function accountLabel(a) {
+    if (!a) return "";
+    const map = mappings.find((m) => m.account_id === a.id);
+    const head = map ? heads.find((h) => h.id === map.head_id) : null;
+    return head ? `${a.name} — ${head.name}` : `${a.name} — ${a.group}`;
+  }
 
   function updateLine(idx, field, value) {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
@@ -108,9 +93,11 @@ export default function NewTransaction() {
             const quantity = Number(l.quantity);
             const rate = Number(l.rate);
             const amount = Math.round(quantity * rate * 100) / 100;
-            const gst_percent = Number(l.gst_percent) || 0;
-            const gst_amount = Math.round(amount * (gst_percent / 100) * 100) / 100;
-            return { item_name: l.item_name, quantity, rate, gst_percent, gst_amount };
+            const sgst_percent = Number(l.sgst_percent) || 0;
+            const cgst_percent = Number(l.cgst_percent) || 0;
+            const sgst_amount = Math.round(amount * (sgst_percent / 100) * 100) / 100;
+            const cgst_amount = Math.round(amount * (cgst_percent / 100) * 100) / 100;
+            return { item_name: l.item_name, quantity, rate, account_id: l.account_id || undefined, sgst_percent, cgst_percent, sgst_amount, cgst_amount };
           });
         if (payload.lines.length === 0) {
           setError("Add at least one item line.");
@@ -252,23 +239,24 @@ export default function NewTransaction() {
                 ))}
               </select>
               <div style={{ fontSize: 12 }} className="text-muted">Choose which income account to post the sale to (optional).</div>
-              <div style={{ marginTop: 8 }}>
-                <InlineCreateAccount defaultGroup="INCOME" onCreated={(acct) => { setAccounts((prev) => [acct, ...prev]); setSalesAccountId(acct.id); }} />
-              </div>
+              {/* inline account creation removed */}
             </div>
             <div className="field">
               <label>Items</label>
               <table className="line-items-table">
                 <thead>
-                  <tr>
-                    <th style={{ width: "50%" }}>Item</th>
-                    <th className="right">Qty</th>
-                    <th className="right">Rate</th>
-                    <th className="right">GST%</th>
-                    <th className="right">Tax</th>
-                    <th className="right">Amount</th>
-                    <th></th>
-                  </tr>
+            <tr>
+              <th style={{ width: "36%", textAlign: 'left' }}>Item</th>
+              <th style={{ width: "8%", textAlign: 'right' }}>Qty</th>
+              <th style={{ width: "24%", textAlign: 'left' }}>Account</th>
+              <th style={{ width: "8%", textAlign: 'right' }}>Rate</th>
+              <th style={{ width: "6%", textAlign: 'right' }}>SGST%</th>
+              <th style={{ width: "6%", textAlign: 'right' }}>CGST%</th>
+              <th style={{ width: "6%", textAlign: 'right' }}>SGST</th>
+              <th style={{ width: "6%", textAlign: 'right' }}>CGST</th>
+              <th style={{ width: "6%", textAlign: 'right' }}>Amount</th>
+              <th style={{ width: "2%" }}></th>
+            </tr>
                 </thead>
                 <tbody>
                   {lines.map((l, idx) => (
@@ -282,14 +270,38 @@ export default function NewTransaction() {
                         />
                       </td>
                       <td>
-                        <input
-                          className="input"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={l.quantity}
-                          onChange={(e) => updateLine(idx, "quantity", e.target.value)}
-                        />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={l.quantity}
+                            onChange={(e) => updateLine(idx, "quantity", e.target.value)}
+                            style={{ width: 64, textAlign: 'right' }}
+                          />
+                          <select
+                            className="input"
+                            value={l.account_id || ""}
+                            onChange={(e) => updateLine(idx, "account_id", e.target.value)}
+                            style={{ minWidth: 220 }}
+                          >
+                          <option value="">(select head/account)</option>
+                          {heads.map((h) => (
+                            <optgroup key={h.id} label={h.name}>
+                              {mappings
+                                .filter((m) => m.head_id === h.id)
+                                .map((m) => {
+                                  const a = accounts.find((ac) => ac.id === m.account_id);
+                                  if (!a) return null;
+                                  return (
+                                    <option key={a.id} value={a.id}>{a.name} — {a.group}</option>
+                                  );
+                                })}
+                            </optgroup>
+                          ))}
+                        </select>
+                        </div>
                       </td>
                       <td>
                         <input
@@ -299,25 +311,44 @@ export default function NewTransaction() {
                           step="0.01"
                           value={l.rate}
                           onChange={(e) => updateLine(idx, "rate", e.target.value)}
+                          style={{ width: 90, textAlign: 'right' }}
                         />
                       </td>
-                      <td>
-                        <input
-                          className="input"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={l.gst_percent}
-                          onChange={(e) => updateLine(idx, "gst_percent", e.target.value)}
-                        />
-                      </td>
-                      <td className="num">
-                        {(
-                          ((Number(l.quantity) || 0) * (Number(l.rate) || 0)) *
-                          ((Number(l.gst_percent) || 0) / 100)
-                        ).toFixed(2)}
-                      </td>
-                      <td className="num">{((Number(l.quantity) || 0) * (Number(l.rate) || 0)).toFixed(2)}</td>
+                        <td>
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={l.sgst_percent}
+                            onChange={(e) => updateLine(idx, "sgst_percent", e.target.value)}
+                            style={{ width: 64, textAlign: 'right' }}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={l.cgst_percent}
+                            onChange={(e) => updateLine(idx, "cgst_percent", e.target.value)}
+                            style={{ width: 64, textAlign: 'right' }}
+                          />
+                        </td>
+                        <td className="num" style={{ textAlign: 'right', paddingRight: 8 }}>
+                          {(
+                            ((Number(l.quantity) || 0) * (Number(l.rate) || 0)) *
+                            ((Number(l.sgst_percent) || 0) / 100)
+                          ).toFixed(2)}
+                        </td>
+                        <td className="num" style={{ textAlign: 'right', paddingRight: 8 }}>
+                          {(
+                            ((Number(l.quantity) || 0) * (Number(l.rate) || 0)) *
+                            ((Number(l.cgst_percent) || 0) / 100)
+                          ).toFixed(2)}
+                        </td>
+                        <td className="num" style={{ textAlign: 'right', paddingRight: 8 }}>{((Number(l.quantity) || 0) * (Number(l.rate) || 0)).toFixed(2)}</td>
                       <td>
                         {lines.length > 1 && (
                           <button type="button" className="remove-line" onClick={() => removeLine(idx)}>×</button>
@@ -355,9 +386,7 @@ export default function NewTransaction() {
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>
-                <div style={{ marginTop: 8 }}>
-                  <InlineCreateAccount defaultGroup="ASSET" onCreated={(acct) => { setAccounts((prev) => [acct, ...prev]); setCashAccountId(acct.id); }} />
-                </div>
+                {/* inline account creation removed */}
               </div>
             </div>
           )}

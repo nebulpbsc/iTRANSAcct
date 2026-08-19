@@ -52,6 +52,16 @@ class AccountHeadOut(BaseModel):
     description: Optional[str] = None
 
 
+class AccountHeadCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class AccountHeadUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class AccountHeadMappingIn(BaseModel):
     head_id: str
     account_id: str
@@ -75,8 +85,12 @@ class TransactionLineIn(BaseModel):
     item_name: str
     quantity: float = 1.0
     rate: float = 0.0
-    gst_percent: float = 0.0
-    gst_amount: float = 0.0
+    sgst_percent: float = 0.0
+    cgst_percent: float = 0.0
+    sgst_amount: float = 0.0
+    cgst_amount: float = 0.0
+    account_id: Optional[str] = None
+
 
     @property
     def amount(self) -> float:
@@ -90,8 +104,12 @@ class TransactionLineOut(BaseModel):
     quantity: float
     rate: float
     amount: float
-    gst_percent: float = 0.0
-    gst_amount: float = 0.0
+    sgst_percent: float = 0.0
+    cgst_percent: float = 0.0
+    sgst_amount: float = 0.0
+    cgst_amount: float = 0.0
+    account_id: Optional[str] = None
+
 
 
 class TransactionCreate(BaseModel):

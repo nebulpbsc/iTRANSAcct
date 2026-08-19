@@ -129,9 +129,9 @@ export default function Outbox() {
           {viewing.lines && viewing.lines.length > 0 && (
             <table className="line-items-table mt-12">
               <thead>
-                <tr>
-                  <th>Item</th><th className="right">Qty</th><th className="right">Rate</th><th className="right">GST%</th><th className="right">Tax</th><th className="right">Amount</th>
-                </tr>
+              <tr>
+                <th>Item</th><th className="right">Qty</th><th className="right">Rate</th><th className="right">SGST%</th><th className="right">CGST%</th><th className="right">SGST</th><th className="right">CGST</th><th className="right">Amount</th>
+              </tr>
               </thead>
               <tbody>
                 {viewing.lines.map((l) => (
@@ -139,8 +139,10 @@ export default function Outbox() {
                     <td>{l.item_name}</td>
                     <td className="num">{Number(l.quantity).toFixed(2)}</td>
                     <td className="num">{Number(l.rate).toFixed(2)}</td>
-                    <td className="num">{(Number(l.gst_percent) || 0).toFixed(2)}</td>
-                    <td className="num">{(Number(l.gst_amount) || 0).toFixed(2)}</td>
+                    <td className="num">{(Number(l.sgst_percent) || 0).toFixed(2)}</td>
+                    <td className="num">{(Number(l.cgst_percent) || 0).toFixed(2)}</td>
+                    <td className="num">{(Number(l.sgst_amount) || 0).toFixed(2)}</td>
+                    <td className="num">{(Number(l.cgst_amount) || 0).toFixed(2)}</td>
                     <td className="num">{(Number(l.amount) || 0).toFixed(2)}</td>
                   </tr>
                 ))}
