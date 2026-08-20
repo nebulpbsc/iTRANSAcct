@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
 from . import models  # noqa: F401 -- ensures models are registered before create_all
-from .routers import auth, companies, accounts, transactions, reports
+from .routers import auth, companies, accounts, transactions, reports, journals
 
 Base.metadata.create_all(bind=engine)
 
@@ -26,6 +26,7 @@ app.include_router(companies.router)
 app.include_router(accounts.router)
 app.include_router(transactions.router)
 app.include_router(reports.router)
+app.include_router(journals.router)
 
 
 @app.get("/")

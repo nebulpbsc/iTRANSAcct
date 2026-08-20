@@ -48,6 +48,8 @@ export const api = {
 
   accounts: () => request("/accounts"),
   createAccount: (payload) => request("/accounts", { method: "POST", body: payload }),
+  updateAccount: (id, payload) => request(`/accounts/${id}`, { method: "PUT", body: payload }),
+  deleteAccount: (id) => request(`/accounts/${id}`, { method: "DELETE" }),
   accountHeads: () => request("/accounts/heads"),
   createHead: (payload) => request("/accounts/heads", { method: "POST", body: payload }),
   updateHead: (id, payload) => request(`/accounts/heads/${id}`, { method: "PUT", body: payload }),
@@ -63,6 +65,10 @@ export const api = {
   outbox: (state) => request(`/transactions/outbox${state ? `?state=${state}` : ""}`),
   inbox: (state) => request(`/transactions/inbox${state ? `?state=${state}` : ""}`),
   getTransaction: (id) => request(`/transactions/${id}`),
+  // Journals
+  journals: () => request('/journals'),
+  getJournal: (id) => request(`/journals/${id}`),
+  createJournal: (payload) => request('/journals', { method: 'POST', body: payload }),
 
   ledger: (accountId, params = {}) => {
     const qs = new URLSearchParams(params).toString();
@@ -71,4 +77,8 @@ export const api = {
   trialBalance: (as_of) => request(`/reports/trial-balance${as_of ? `?as_of=${as_of}` : ""}`),
   reconciliation: (counterpartyId) => request(`/reports/reconciliation/${counterpartyId}`),
   receivablesPayables: () => request(`/reports/receivables-payables`),
+  // journals page
+  journals: () => request('/journals'),
+  getJournal: (id) => request(`/journals/${id}`),
+  createJournal: (payload) => request('/journals', { method: 'POST', body: payload }),
 };

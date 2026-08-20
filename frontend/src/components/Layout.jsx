@@ -9,6 +9,7 @@ const nav = [
       { to: "/new", label: "New Transaction" },
       { to: "/outbox", label: "Outbox" },
       { to: "/inbox", label: "Inbox" },
+      { to: "/journals", label: "Journals" },
       { to: "/connections", label: "Connections" },
     ],
   },

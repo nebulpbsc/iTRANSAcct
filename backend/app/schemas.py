@@ -43,6 +43,7 @@ class AccountOut(BaseModel):
     group: str
     type: str
     counterparty_company_id: Optional[str] = None
+    is_system: bool = False
 
 
 class AccountHeadOut(BaseModel):
@@ -130,6 +131,12 @@ class TakeTransactionIn(BaseModel):
     # true zero-data-entry acknowledgment.
     recipient_cash_account_id: Optional[str] = None
     recipient_purchase_account_id: Optional[str] = None
+    # Optional per-line account assignments the recipient can choose before taking
+    class LineAccountAssign(BaseModel):
+        line_id: str
+        account_id: Optional[str] = None
+
+    line_account_assignments: Optional[List[LineAccountAssign]] = None
 
 
 class SendTransactionIn(BaseModel):
@@ -225,3 +232,37 @@ class ReceivablesPayablesOut(BaseModel):
     payables: List[PartyBalanceRow]
     total_receivable: float
     total_payable: float
+
+
+# ---------- Journal Entries (manual) ----------
+class JournalLineIn(BaseModel):
+    account_id: str
+    debit: float = 0.0
+    credit: float = 0.0
+
+
+class JournalEntryCreate(BaseModel):
+    voucher_type: str
+    entry_date: Optional[date] = None
+    narration: Optional[str] = None
+    lines: List[JournalLineIn]
+
+
+class JournalLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    account_id: str
+    debit: float
+    credit: float
+
+
+class JournalEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    company_id: str
+    voucher_type: str
+    voucher_no: Optional[str] = None
+    entry_date: date
+    narration: Optional[str] = None
+    created_at: datetime
+    lines: List[JournalLineOut] = []

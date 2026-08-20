@@ -1,5 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import { api } from "../api/client";
+import Modal from "../components/Modal";
 import StateStamp from "../components/StateStamp";
 
 function fmt(n) {
@@ -12,22 +13,47 @@ export default function Inbox() {
   const [filter, setFilter] = useState("SENT");
   const [txns, setTxns] = useState([]);
   const [accounts, setAccounts] = useState([]);
+  const [heads, setHeads] = useState([]);
+  const [mappings, setMappings] = useState([]);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [pickingCashFor, setPickingCashFor] = useState(null);
   const [chosenCash, setChosenCash] = useState("");
   const [pickingPurchaseFor, setPickingPurchaseFor] = useState(null);
   const [chosenPurchaseAccount, setChosenPurchaseAccount] = useState("");
+  const [viewing, setViewing] = useState(null);
+  const [viewBusy, setViewBusy] = useState(false);
+  const [viewError, setViewError] = useState("");
+  const [lineAccountSelections, setLineAccountSelections] = useState({});
 
   function load() {
     api.inbox(filter === "ALL" ? undefined : filter).then(setTxns).catch((e) => setError(e.message));
   }
 
   useEffect(load, [filter]);
-  useEffect(() => { api.accounts().then(setAccounts).catch(() => {}); }, []);
+  useEffect(() => { api.accounts().then(setAccounts).catch(() => {}); api.accountHeads().then(setHeads).catch(()=>{}); api.accountMappings().then(setMappings).catch(()=>{}); }, []);
 
   const cashAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "ASSET");
   const purchaseAccounts = accounts.filter((a) => a.type === "STANDARD" && a.group === "EXPENSE");
+
+  async function viewTxn(id) {
+    setViewError("");
+    // immediately open modal in loading state so user sees feedback
+    setViewing({ id: "__loading__", type: null, state: "LOADING", sender_company_name: "", txn_date: "", lines: [] });
+    setViewBusy(true);
+    try {
+      const t = await api.getTransaction(id);
+      setViewing(t);
+      const initial = {};
+      (t.lines || []).forEach((l) => { initial[l.id] = l.account_id || ""; });
+      setLineAccountSelections(initial);
+    } catch (err) {
+      setViewError(err.message);
+      // keep modal open to show error
+    } finally {
+      setViewBusy(false);
+    }
+  }
 
   async function take(t) {
     // For payments, offer a chance to pick which of our accounts received the funds.
@@ -120,6 +146,9 @@ export default function Inbox() {
                     <td className="right">
                       {t.state === "SENT" && (
                         <div className="flex-gap" style={{ justifyContent: "flex-end" }}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => viewTxn(t.id)}>
+                            View
+                          </button>
                           <button className="btn btn-primary btn-sm" onClick={() => take(t)} disabled={busyId === t.id}>
                             {pickingCashFor === t.id ? "Confirm Take" : "Take"}
                           </button>
@@ -167,6 +196,72 @@ export default function Inbox() {
           </table>
         )}
       </div>
+
+      {viewing && (
+        <Modal onClose={() => setViewing(null)}>
+          <button className="btn btn-ghost" onClick={() => setViewing(null)} disabled={viewBusy} style={{ position: "absolute", right: 12, top: 12 }}>Close</button>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{viewing.state === 'LOADING' ? 'Loading…' : 'Transaction details'}</div>
+            {viewing.state !== 'LOADING' && <div className="text-muted">{viewing.type === "SALE_PURCHASE" ? "Purchase" : "Receipt"} — {viewing.state}</div>}
+          </div>
+          {viewError && <div className="alert alert-error">{viewError}</div>}
+          {viewing.state === 'LOADING' ? (
+            <div>Loading transaction…</div>
+          ) : (
+            <>
+              <div style={{ marginTop: 12 }}>
+                <div><strong>From:</strong> {viewing.sender_company_name}</div>
+                <div><strong>Date:</strong> <span className="mono">{viewing.txn_date}</span></div>
+                {viewing.narration && <div><strong>Narration:</strong> {viewing.narration}</div>}
+              </div>
+              {viewing.lines && viewing.lines.length > 0 && (
+                <table className="line-items-table mt-12">
+                  <thead>
+                    <tr>
+                      <th>Item</th><th className="right">Qty</th><th>Account</th><th className="right">Rate</th><th className="right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewing.lines.map((l) => (
+                      <tr key={l.id}>
+                        <td>{l.item_name}</td>
+                        <td className="num">{Number(l.quantity).toFixed(2)}</td>
+                        <td>
+                          <select className="input" value={lineAccountSelections[l.id] || (l.account_id || "")} onChange={(e) => setLineAccountSelections((prev) => ({ ...prev, [l.id]: e.target.value }))}>
+                            <option value="">(use default mapping)</option>
+                            {accounts.filter((a) => a.type === "STANDARD").map((a) => (
+                              <option key={a.id} value={a.id}>{a.name} — {a.group}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="num">{Number(l.rate).toFixed(2)}</td>
+                        <td className="num">{Number(l.amount).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+                <button className="btn btn-primary" onClick={async () => {
+                  setViewBusy(true);
+                  setViewError("");
+                  try {
+                    const assignments = Object.entries(lineAccountSelections).map(([line_id, account_id]) => ({ line_id, account_id: account_id || undefined }));
+                    await api.takeTransaction(viewing.id, { line_account_assignments: assignments });
+                    setViewing(null);
+                    load();
+                  } catch (err) {
+                    setViewError(err.message);
+                  } finally {
+                    setViewBusy(false);
+                  }
+                }} disabled={viewBusy}>{viewBusy ? "Taking…" : "Take transaction"}</button>
+                <button className="btn btn-ghost" onClick={() => setViewing(null)} disabled={viewBusy}>Cancel</button>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

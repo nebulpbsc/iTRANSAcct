@@ -13,6 +13,7 @@ import TrialBalance from "./pages/TrialBalance";
 import Reconciliation from "./pages/Reconciliation";
 import ReceivablesPayables from "./pages/ReceivablesPayables";
 import AccountHeads from "./pages/AccountHeads";
+import Journals from "./pages/Journals";
 
 function Protected({ children }) {
   const { company, loading } = useAuth();
@@ -49,6 +50,7 @@ export default function App() {
         <Route path="reports/reconciliation" element={<Reconciliation />} />
         <Route path="reports/receivables-payables" element={<ReceivablesPayables />} />
         <Route path="settings/account-heads" element={<AccountHeads />} />
+        <Route path="journals" element={<Journals />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -157,14 +157,53 @@ def post_on_send(db: Session, txn: models.Transaction, sender_sales_account_id: 
             sales_acct = db.query(models.Account).filter_by(id=sender_sales_account_id, company_id=sender.id).first()
         else:
             sales_acct = resolve_account_for_head(sender.id, "Sales", SALES_ACCOUNT)
+
+        # compute net and tax totals from lines
+        net_total = round(sum((getattr(l, "amount", 0.0) or 0.0) for l in txn.lines), 2)
+        tax_total = round(sum(((getattr(l, "sgst_amount", 0.0) or 0.0) + (getattr(l, "cgst_amount", 0.0) or 0.0)) for l in txn.lines), 2)
+
         party_recv = get_or_create_party_account(
             db, sender.id, recipient.id, recipient.name, models.AccountType.PARTY_RECEIVABLE
         )
+
+        # compute SGST / CGST totals (tax_total already computed above as sgst+cgst)
+        sgst_total = round(sum((getattr(l, "sgst_amount", 0.0) or 0.0) for l in txn.lines), 2)
+        cgst_total = round(sum((getattr(l, "cgst_amount", 0.0) or 0.0) for l in txn.lines), 2)
+
+        # resolve or create SGST/CGST liability accounts for seller
+        def _resolve_or_create(name):
+            acct = db.query(models.Account).filter_by(company_id=sender.id, name=name).first()
+            if acct:
+                return acct
+            acct = models.Account(
+                company_id=sender.id,
+                name=name,
+                group=models.AccountGroup.LIABILITY,
+                type=models.AccountType.STANDARD,
+                is_system=False,
+            )
+            db.add(acct)
+            db.flush()
+            return acct
+
+        gst_credit_sgst = _resolve_or_create("SGST Credit") if sgst_total != 0 else None
+        gst_credit_cgst = _resolve_or_create("CGST Credit") if cgst_total != 0 else None
+
         voucher_no = _next_voucher_no(db, sender.id, "Sales")
+        # Posting: Dr Party Receivable (total); Cr Sales (net); Cr SGST (tax); Cr CGST (tax)
+        total_amount = round(net_total + sgst_total + cgst_total, 2)
+        lines = [(party_recv.id, total_amount, 0.0)]
+        if net_total != 0:
+            lines.append((sales_acct.id, 0.0, round(net_total, 2)))
+        if sgst_total != 0 and gst_credit_sgst:
+            lines.append((gst_credit_sgst.id, 0.0, round(sgst_total, 2)))
+        if cgst_total != 0 and gst_credit_cgst:
+            lines.append((gst_credit_cgst.id, 0.0, round(cgst_total, 2)))
+
         entry = _make_entry(
             db, sender.id, txn.id, "Sales", voucher_no, txn.txn_date,
             f"Sale to {recipient.name} — {txn.narration or ''}".strip(" —"),
-            [(party_recv.id, txn.total_amount, 0.0), (sales_acct.id, 0.0, txn.total_amount)],
+            lines,
         )
 
     else:  # PAYMENT_RECEIPT
@@ -201,14 +240,53 @@ def post_on_take(db: Session, txn: models.Transaction, recipient_cash_account_id
             purchase_acct = db.query(models.Account).filter_by(id=recipient_purchase_account_id, company_id=recipient.id).first()
         if not purchase_acct:
             purchase_acct = db.query(models.Account).filter_by(company_id=recipient.id, name=PURCHASE_ACCOUNT).first()
+
+        # compute net and tax totals from lines
+        net_total = round(sum((getattr(l, "amount", 0.0) or 0.0) for l in txn.lines), 2)
+        tax_total = round(sum(((getattr(l, "sgst_amount", 0.0) or 0.0) + (getattr(l, "cgst_amount", 0.0) or 0.0)) for l in txn.lines), 2)
+
         party_pay = get_or_create_party_account(
             db, recipient.id, sender.id, sender.name, models.AccountType.PARTY_PAYABLE
         )
+
+        # compute SGST/CGST totals
+        sgst_total = round(sum((getattr(l, "sgst_amount", 0.0) or 0.0) for l in txn.lines), 2)
+        cgst_total = round(sum((getattr(l, "cgst_amount", 0.0) or 0.0) for l in txn.lines), 2)
+
+        # resolve or create SGST/CGST debit accounts for recipient (input tax)
+        def _resolve_or_create_debit(name):
+            acct = db.query(models.Account).filter_by(company_id=recipient.id, name=name).first()
+            if acct:
+                return acct
+            acct = models.Account(
+                company_id=recipient.id,
+                name=name,
+                group=models.AccountGroup.ASSET,
+                type=models.AccountType.STANDARD,
+                is_system=False,
+            )
+            db.add(acct)
+            db.flush()
+            return acct
+
+        gst_debit_sgst = _resolve_or_create_debit("SGST Debit") if sgst_total != 0 else None
+        gst_debit_cgst = _resolve_or_create_debit("CGST Debit") if cgst_total != 0 else None
+
         voucher_no = _next_voucher_no(db, recipient.id, "Purchase")
+        # Posting: Dr Purchase (net); Dr SGST Debit; Dr CGST Debit; Cr Party Payable (total)
+        lines = []
+        if net_total != 0:
+            lines.append((purchase_acct.id, round(net_total, 2), 0.0))
+        if sgst_total != 0 and gst_debit_sgst:
+            lines.append((gst_debit_sgst.id, round(sgst_total, 2), 0.0))
+        if cgst_total != 0 and gst_debit_cgst:
+            lines.append((gst_debit_cgst.id, round(cgst_total, 2), 0.0))
+        lines.append((party_pay.id, 0.0, round(net_total + sgst_total + cgst_total, 2)))
+
         entry = _make_entry(
             db, recipient.id, txn.id, "Purchase", voucher_no, txn.txn_date,
             f"Purchase from {sender.name} — {txn.narration or ''}".strip(" —"),
-            [(purchase_acct.id, txn.total_amount, 0.0), (party_pay.id, 0.0, txn.total_amount)],
+            lines,
         )
 
     else:  # PAYMENT_RECEIPT -> recorded as Receipt

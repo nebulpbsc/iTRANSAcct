@@ -270,22 +270,23 @@ export default function NewTransaction() {
                         />
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <input
-                            className="input"
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={l.quantity}
-                            onChange={(e) => updateLine(idx, "quantity", e.target.value)}
-                            style={{ width: 64, textAlign: 'right' }}
-                          />
-                          <select
-                            className="input"
-                            value={l.account_id || ""}
-                            onChange={(e) => updateLine(idx, "account_id", e.target.value)}
-                            style={{ minWidth: 220 }}
-                          >
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={l.quantity}
+                          onChange={(e) => updateLine(idx, "quantity", e.target.value)}
+                          style={{ width: 64, textAlign: 'right' }}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          className="input"
+                          value={l.account_id || ""}
+                          onChange={(e) => updateLine(idx, "account_id", e.target.value)}
+                          style={{ minWidth: 220 }}
+                        >
                           <option value="">(select head/account)</option>
                           {heads.map((h) => (
                             <optgroup key={h.id} label={h.name}>
@@ -301,7 +302,6 @@ export default function NewTransaction() {
                             </optgroup>
                           ))}
                         </select>
-                        </div>
                       </td>
                       <td>
                         <input

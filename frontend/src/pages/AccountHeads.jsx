@@ -50,7 +50,7 @@ function AccountRow({ acct, onEdit, onDelete }) {
       <td>{acct.group}</td>
       <td className="right">
         <button className="btn btn-ghost btn-sm" onClick={() => onEdit(acct)}>Edit</button>
-        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => onDelete(acct)}>Delete</button>
+        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => onDelete(acct)} disabled={acct.is_system} title={acct.is_system ? "System accounts cannot be deleted" : undefined}>Delete</button>
       </td>
     </tr>
   );
@@ -97,9 +97,13 @@ export default function AccountHeads() {
   }
 
   async function handleDeleteMapping(mapping_id) {
-    await api.deleteAccountMapping(mapping_id);
-    const updated = await api.accountMappings();
-    setMappings(updated);
+    try {
+      await api.deleteAccountMapping(mapping_id);
+      const updated = await api.accountMappings();
+      setMappings(updated);
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   // Heads CRUD
@@ -115,8 +119,12 @@ export default function AccountHeads() {
 
   async function deleteHead(head) {
     if (!confirm(`Delete account head "${head.name}"? This cannot be undone.`)) return;
-    await api.deleteHead(head.id);
-    setHeads((prev) => prev.filter((h) => h.id !== head.id));
+    try {
+      await api.deleteHead(head.id);
+      setHeads((prev) => prev.filter((h) => h.id !== head.id));
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   // Accounts CRUD
@@ -134,8 +142,12 @@ export default function AccountHeads() {
 
   async function deleteAccountRow(acct) {
     if (!confirm(`Delete account "${acct.name}"? This cannot be undone.`)) return;
-    await api.deleteAccount(acct.id);
-    setAccounts((prev) => prev.filter((a) => a.id !== acct.id));
+    try {
+      await api.deleteAccount(acct.id);
+      setAccounts((prev) => prev.filter((a) => a.id !== acct.id));
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   if (loading) return <div>Loading…</div>;

@@ -251,6 +251,20 @@ def take_transaction(
         raise HTTPException(status_code=403, detail="Only the recipient can take this transaction")
     if txn.state != models.TransactionState.SENT:
         raise HTTPException(status_code=400, detail=f"Transaction must be SENT before it can be taken (currently {txn.state.value})")
+    # If recipient provided per-line account assignments, validate and persist them
+    if getattr(payload, "line_account_assignments", None):
+        for assign in payload.line_account_assignments:
+            # ensure the line exists and belongs to this transaction
+            line = db.query(models.TransactionLine).filter(models.TransactionLine.id == assign.line_id, models.TransactionLine.transaction_id == txn.id).first()
+            if not line:
+                raise HTTPException(status_code=400, detail=f"Invalid line id: {assign.line_id}")
+            # if account_id provided, ensure it belongs to recipient company
+            if assign.account_id:
+                acct = db.query(models.Account).filter(models.Account.id == assign.account_id, models.Account.company_id == current.id).first()
+                if not acct:
+                    raise HTTPException(status_code=400, detail=f"Account not found for recipient: {assign.account_id}")
+                line.account_id = assign.account_id
+        db.commit()
 
     entry = posting.post_on_take(db, txn, recipient_cash_account_id=payload.recipient_cash_account_id, recipient_purchase_account_id=payload.recipient_purchase_account_id)
     txn.recipient_journal_entry_id = entry.id
